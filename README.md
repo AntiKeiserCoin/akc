@@ -14,7 +14,7 @@ Total of ~900,000,000 Coins
 
 2 Minute Block Targets
 
-30 Block Difficulty Retarget Intervals
+20 Min Difficulty Retarget Intervals
 
 Default P2P Port: 39919
 
