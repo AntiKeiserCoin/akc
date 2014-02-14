@@ -878,8 +878,8 @@ int64 static GetBlockValue(int nHeight, int64 nFees, uint256 prevHash)
     return nSubsidy + nFees;
 }
 
-static const int64 nTargetTimespan = 120 * 25; // AntiKeiserCoin: every 20 minutes
-static const int64 nTargetSpacing = 120; // AntiKeiserCoin: 60 seconds
+static const int64 nTargetTimespan = 120 * 25; // AntiKeiserCoin: every 25 blocks //will fixed
+static const int64 nTargetSpacing = 120; // AntiKeiserCoin: 120 seconds
 
 //
 // minimum amount of work that could possibly be required nTime after
