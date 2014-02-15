@@ -2,6 +2,7 @@
 // Copyright (c) 2009-2012 The Bitcoin developers
 // Copyright (c) 2011-2012 Litecoin Developers
 // Copyright (c) 2013 AntiKeiserCoin Developers
+// Copyright (c) 2014 Kimoto
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -869,12 +870,11 @@ int64 static GetBlockValue(int nHeight, int64 nFees, uint256 prevHash)
         
 		if(rand > 30000 && rand < 35001)		
 			nSubsidy *= 100000;
-		else if(rand > 70000 && rand < 71001)	
+		else if(rand > 70000 && rand < 71001)
 			nSubsidy *= 250000;
 		else if(rand > 50000 && rand < 50011)	
 			nSubsidy *= 500000;
     }
-    
     return nSubsidy + nFees;
 }
 
@@ -906,7 +906,10 @@ unsigned int ComputeMinWork(unsigned int nBase, int64 nTime)
     return bnResult.GetCompact();
 }
 
-unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlock *pblock)
+
+
+
+unsigned int static GetNextWorkRequired_V1(const CBlockIndex* pindexLast, const CBlock *pblock)
 {
     unsigned int nProofOfWorkLimit = bnProofOfWorkLimit.GetCompact();
 
@@ -961,7 +964,6 @@ unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast, const CBl
 
     int64 nActualTimespanMin = fNewDifficultyProtocol ? (nTargetTimespanCurrent - nTargetTimespanCurrent/4) : (nTargetTimespanCurrent/4);
     int64 nActualTimespanMax = fNewDifficultyProtocol ? (nTargetTimespanCurrent + nTargetTimespanCurrent/4) : (nTargetTimespanCurrent*4);
-	
 	if(pindexLast->nHeight+1 > 10000)
 	{
         if (nActualTimespan < nActualTimespanMin)
@@ -1001,6 +1003,83 @@ unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast, const CBl
 
     return bnNew.GetCompact();
 }
+
+unsigned int static KimotoGravityWell(const CBlockIndex* pindexLast, const CBlock *pblock, uint64 TargetBlocksSpacingSeconds, uint64 PastBlocksMin, uint64 PastBlocksMax) {
+        /* current difficulty formula, megacoin - kimoto gravity well */
+        const CBlockIndex *BlockLastSolved = pindexLast;
+        const CBlockIndex *BlockReading = pindexLast;
+        const CBlock *BlockCreating = pblock;
+                                                BlockCreating = BlockCreating;
+        uint64 PastBlocksMass = 0;
+        int64 PastRateActualSeconds = 0;
+        int64 PastRateTargetSeconds = 0;
+        double PastRateAdjustmentRatio = double(1);
+        CBigNum PastDifficultyAverage;
+        CBigNum PastDifficultyAveragePrev;
+        double EventHorizonDeviation;
+        double EventHorizonDeviationFast;
+        double EventHorizonDeviationSlow;
+    if (BlockLastSolved == NULL || BlockLastSolved->nHeight == 0 || (uint64)BlockLastSolved->nHeight < PastBlocksMin) { return bnProofOfWorkLimit.GetCompact(); }
+        for (unsigned int i = 1; BlockReading && BlockReading->nHeight > 0; i++) {
+                if (PastBlocksMax > 0 && i > PastBlocksMax) { break; }
+                PastBlocksMass++;
+                if (i == 1) { PastDifficultyAverage.SetCompact(BlockReading->nBits); }
+                else { PastDifficultyAverage = ((CBigNum().SetCompact(BlockReading->nBits) - PastDifficultyAveragePrev) / i) + PastDifficultyAveragePrev; }
+                PastDifficultyAveragePrev = PastDifficultyAverage;
+                PastRateTargetSeconds = TargetBlocksSpacingSeconds * PastBlocksMass;
+                PastRateAdjustmentRatio = double(1);
+                if (PastRateActualSeconds < 0) { PastRateActualSeconds = 0; }
+                if (PastRateActualSeconds != 0 && PastRateTargetSeconds != 0) {
+                PastRateAdjustmentRatio = double(PastRateTargetSeconds) / double(PastRateActualSeconds);
+                }
+                EventHorizonDeviation = 1 + (0.7084 * pow((double(PastBlocksMass)/double(39.96)), -1.228));
+                EventHorizonDeviationFast = EventHorizonDeviation;
+                EventHorizonDeviationSlow = 1 / EventHorizonDeviation;
+                if (PastBlocksMass >= PastBlocksMin) {
+                        if ((PastRateAdjustmentRatio <= EventHorizonDeviationSlow) || (PastRateAdjustmentRatio >= EventHorizonDeviationFast)) { assert(BlockReading); break; }
+                }
+                if (BlockReading->pprev == NULL) { assert(BlockReading); break; }
+                BlockReading = BlockReading->pprev;
+        }
+        CBigNum bnNew(PastDifficultyAverage);
+        if (PastRateActualSeconds != 0 && PastRateTargetSeconds != 0) {
+                bnNew *= PastRateActualSeconds;
+                bnNew /= PastRateTargetSeconds;
+        }
+    if (bnNew > bnProofOfWorkLimit) { bnNew = bnProofOfWorkLimit; }
+    /// debug print
+    printf("Difficulty Retarget - Kimoto Gravity Well\n");
+    printf("PastRateAdjustmentRatio = %g\n", PastRateAdjustmentRatio);
+    printf("Before: %08x %s\n", BlockLastSolved->nBits, CBigNum().SetCompact(BlockLastSolved->nBits).getuint256().ToString().c_str());
+    printf("After: %08x %s\n", bnNew.GetCompact(), bnNew.getuint256().ToString().c_str());
+        return bnNew.GetCompact();
+}
+
+unsigned int static GetNextWorkRequired_V2(const CBlockIndex* pindexLast, const CBlock *pblock)
+{
+        static const int64 BlocksTargetSpacing = 40; // seconds
+        unsigned int TimeDaySeconds = 60 * 60 * 24;
+        int64 PastSecondsMin = TimeDaySeconds * 0.0185;
+        int64 PastSecondsMax = TimeDaySeconds * 0.23125;
+        uint64 PastBlocksMin = PastSecondsMin / BlocksTargetSpacing;
+        uint64 PastBlocksMax = PastSecondsMax / BlocksTargetSpacing;
+        return KimotoGravityWell(pindexLast, pblock, BlocksTargetSpacing, PastBlocksMin, PastBlocksMax);
+}
+
+unsigned int static GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlock *pblock)
+{
+        int DiffMode = 1;
+        if (fTestNet) {
+                if (pindexLast->nHeight+1 >= 50) { DiffMode = 2; }
+        }
+        else {
+                if (pindexLast->nHeight+1 >= 35000) { DiffMode = 2; }
+        }
+        if (DiffMode == 1) { return GetNextWorkRequired_V1(pindexLast, pblock); }
+        else if (DiffMode == 2) { return GetNextWorkRequired_V2(pindexLast, pblock); }
+        return GetNextWorkRequired_V2(pindexLast, pblock);
+}
+
 
 bool CheckProofOfWork(uint256 hash, unsigned int nBits)
 {
